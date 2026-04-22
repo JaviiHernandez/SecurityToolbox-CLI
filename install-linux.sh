@@ -38,7 +38,8 @@ $SUDO apt-get install -y --no-install-recommends \
     perl libnet-ssleay-perl libio-socket-ssl-perl \
     nodejs npm \
     libffi-dev libssl-dev zlib1g-dev \
-    dnsutils unzip tar gzip
+    dnsutils unzip tar gzip \
+    hydra medusa
 
 # ---- Go ---------------------------------------------------------------
 
@@ -61,12 +62,23 @@ export PATH="/usr/local/go/bin:${HOME}/go/bin:$PATH"
 
 # ---- ProjectDiscovery Go tools ---------------------------------------
 
-bold "==> Installing nuclei / katana / httpx / subfinder / dalfox"
+bold "==> Installing nuclei / katana / httpx / subfinder / dalfox / ffuf / kiterunner"
 go install -ldflags="-s -w" github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
 go install -ldflags="-s -w" github.com/projectdiscovery/katana/cmd/katana@latest
 go install -ldflags="-s -w" github.com/projectdiscovery/httpx/cmd/httpx@latest
 go install -ldflags="-s -w" github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
 go install -ldflags="-s -w" github.com/hahwul/dalfox/v2@latest
+go install -ldflags="-s -w" github.com/ffuf/ffuf/v2@latest
+go install -ldflags="-s -w" github.com/assetnote/kiterunner/cmd/kr@latest
+
+# ---- Kiterunner routes (~40k API routes from public OpenAPI specs) ---
+bold "==> Fetching kiterunner routes-large.kite"
+$SUDO mkdir -p /opt/kiterunner
+if [[ ! -f /opt/kiterunner/routes-large.kite ]]; then
+    $SUDO curl -fsSL -o /opt/kiterunner/routes-large.kite \
+      https://wordlists-cdn.assetnote.io/data/kiterunner/routes-large.kite \
+      || warn "kiterunner routes download failed — kiterunner will skip"
+fi
 
 # ---- nuclei templates -------------------------------------------------
 "${HOME}/go/bin/nuclei" -update-templates -silent || warn "failed to update nuclei templates"
@@ -99,10 +111,11 @@ $SUDO gem install --no-document wpscan
 
 # ---- arjun / sqlmap via pipx -----------------------------------------
 
-bold "==> Installing arjun + sqlmap (pipx)"
+bold "==> Installing arjun + sqlmap + wfuzz (pipx)"
 pipx ensurepath || true
 pipx install arjun || warn "arjun install failed (maybe already installed)"
 pipx install sqlmap || warn "sqlmap install failed"
+pipx install wfuzz || warn "wfuzz install failed (non-critical, ffuf is primary)"
 
 # ---- retire.js (Node) -------------------------------------------------
 
@@ -116,6 +129,18 @@ if [[ ! -d /usr/share/seclists ]]; then
     $SUDO git clone --depth 1 https://github.com/danielmiessler/SecLists /usr/share/seclists
 else
     ok "SecLists already present at /usr/share/seclists"
+fi
+
+# ---- Nuclei workflows (curated exploit chains) -----------------------
+
+bold "==> Installing stbox nuclei workflows"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -d "${HERE}/workflows" ]]; then
+    $SUDO mkdir -p /opt/stbox-workflows
+    $SUDO cp "${HERE}"/workflows/*.yaml /opt/stbox-workflows/ 2>/dev/null || \
+        warn "no workflow YAMLs found in ${HERE}/workflows"
+else
+    warn "${HERE}/workflows not found — skipping (nuclei-workflows runner will be disabled)"
 fi
 
 # ---- stbox itself ----------------------------------------------------

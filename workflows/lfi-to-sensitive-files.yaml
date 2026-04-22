@@ -1,0 +1,26 @@
+id: lfi-to-sensitive-files
+
+info:
+  name: LFI → sensitive file disclosure chain
+  author: stbox
+  severity: high
+  description: |
+    When a Local File Inclusion bug fires, automatically pivot to
+    fetching the canonical sensitive files: /etc/passwd, ~/.ssh/id_rsa,
+    ~/.aws/credentials, webroot config.php, Windows web.config. A
+    single LFI on a Linux app server gives an attacker the complete
+    user list + in many cases private SSH keys mounted into the
+    container.
+
+workflows:
+  - template: http/vulnerabilities/generic/lfi-linux.yaml
+    subtemplates:
+      - template: http/exposures/files/linux-etc-passwd.yaml
+      - template: http/exposures/files/linux-id-rsa.yaml
+      - template: http/exposures/files/aws-credentials-file.yaml
+      - template: http/exposures/configs/wp-config-lfi.yaml
+
+  - template: http/vulnerabilities/generic/lfi-windows.yaml
+    subtemplates:
+      - template: http/exposures/files/windows-web-config.yaml
+      - template: http/exposures/configs/iis-appsettings.yaml

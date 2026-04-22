@@ -37,6 +37,29 @@ class Config:
     # with a warning instead of aborting the scan.
     strict_binaries: bool = False
 
+    # --- Wordlists (SecLists layout under /usr/share/seclists) ---------------
+    # Default locations inside the Docker image. Overridable via env vars when
+    # running natively with SecLists at a different path (e.g. Kali ships it
+    # at /usr/share/seclists too; Homebrew at /opt/homebrew/share/seclists).
+    seclists_root: Path = Path("/usr/share/seclists")
+
+    # Content / path brute force (ffuf, feroxbuster).
+    wl_content_small: Path = Path("/usr/share/seclists/Discovery/Web-Content/common.txt")
+    wl_content_big:   Path = Path("/usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt")
+
+    # Parameter fuzzing (ffuf, wfuzz).
+    wl_params: Path = Path("/usr/share/seclists/Discovery/Web-Content/burp-parameter-names.txt")
+
+    # Credentials brute force (hydra, medusa).
+    wl_usernames: Path = Path("/usr/share/seclists/Usernames/top-usernames-shortlist.txt")
+    wl_passwords: Path = Path("/usr/share/seclists/Passwords/Common-Credentials/10k-most-common.txt")
+
+    # Kiterunner "kite" routes. Shipped as .kite file (not in SecLists).
+    wl_kite: Path = Path("/opt/kiterunner/routes-large.kite")
+
+    # Nuclei workflows directory (our curated .yaml workflows).
+    nuclei_workflows_dir: Path = Path("/opt/stbox-workflows")
+
     @classmethod
     def from_env(cls) -> Config:
         return cls(
@@ -46,6 +69,15 @@ class Config:
             user_agent=os.getenv("STBOX_USER_AGENT", cls.user_agent),
             workdir=Path(os.getenv("STBOX_WORKDIR", str(cls.workdir))),
             strict_binaries=os.getenv("STBOX_STRICT_BINARIES", "0") == "1",
+            seclists_root=Path(os.getenv("STBOX_SECLISTS", str(cls.seclists_root))),
+            wl_content_small=Path(os.getenv("STBOX_WL_CONTENT_SMALL", str(cls.wl_content_small))),
+            wl_content_big=Path(os.getenv("STBOX_WL_CONTENT_BIG", str(cls.wl_content_big))),
+            wl_params=Path(os.getenv("STBOX_WL_PARAMS", str(cls.wl_params))),
+            wl_usernames=Path(os.getenv("STBOX_WL_USERNAMES", str(cls.wl_usernames))),
+            wl_passwords=Path(os.getenv("STBOX_WL_PASSWORDS", str(cls.wl_passwords))),
+            wl_kite=Path(os.getenv("STBOX_WL_KITE", str(cls.wl_kite))),
+            nuclei_workflows_dir=Path(os.getenv("STBOX_NUCLEI_WORKFLOWS",
+                                                 str(cls.nuclei_workflows_dir))),
         )
 
 
@@ -68,4 +100,9 @@ TOOL_BINARIES = {
     "sqlmap": "sqlmap",
     "feroxbuster": "feroxbuster",
     "retire": "retire",
+    "hydra": "hydra",
+    "medusa": "medusa",
+    "ffuf": "ffuf",
+    "wfuzz": "wfuzz",
+    "kiterunner": "kr",
 }

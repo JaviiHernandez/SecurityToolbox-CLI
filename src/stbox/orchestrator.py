@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from datetime import datetime, timezone
 
 from rich.console import Console
@@ -43,13 +44,19 @@ from stbox.passive.wayback import query_wayback
 from stbox.runners.arjun import ArjunRunner
 from stbox.runners.dalfox import DalfoxRunner
 from stbox.runners.feroxbuster import FeroxbusterRunner
+from stbox.runners.ffuf import FfufRunner
 from stbox.runners.httpx_runner import HttpxRunner
+from stbox.runners.hydra import HydraRunner
 from stbox.runners.katana import KatanaRunner
+from stbox.runners.kiterunner import KiterunnerRunner
+from stbox.runners.medusa import MedusaRunner
 from stbox.runners.nikto import NiktoRunner
 from stbox.runners.nuclei import NucleiRunner
+from stbox.runners.nuclei_workflows import NucleiWorkflowsRunner
 from stbox.runners.retire import RetireRunner
 from stbox.runners.sqlmap import SqlmapRunner
 from stbox.runners.subfinder import SubfinderRunner
+from stbox.runners.wfuzz import WfuzzRunner
 from stbox.runners.wpscan import WpscanRunner
 from stbox.scope import check_target, extract_host
 
@@ -275,6 +282,78 @@ async def run_scan(
                 progress.add_task("sqlmap (on arjun-discovered params)", total=None)
                 for t in arjun_targets[:5]:
                     run, finds = await sqlmap.run(t)
+                    result.tool_runs.append(run)
+                    result.findings.extend(finds)
+
+            # ---- Content + parameter fuzzing (ffuf → paths, wfuzz fallback) ----
+            ffuf = FfufRunner(cfg)
+            if ffuf.available():
+                progress.add_task("ffuf (path fuzzing)", total=None)
+                for lh in result.live_hosts[:2]:
+                    run, finds = await ffuf.run(lh, mode="path")
+                    result.tool_runs.append(run)
+                    result.findings.extend(finds)
+            else:
+                wfuzz = WfuzzRunner(cfg)
+                if wfuzz.available():
+                    progress.add_task("wfuzz (path fuzzing, ffuf unavailable)", total=None)
+                    for lh in result.live_hosts[:2]:
+                        run, finds = await wfuzz.run(lh, mode="path")
+                        result.tool_runs.append(run)
+                        result.findings.extend(finds)
+
+            # ---- API endpoint discovery via kiterunner ----
+            kiterunner = KiterunnerRunner(cfg)
+            if kiterunner.available() and cfg.wl_kite.exists():
+                progress.add_task("kiterunner (API routes)", total=None)
+                for lh in result.live_hosts[:2]:
+                    run, finds = await kiterunner.run(lh)
+                    result.tool_runs.append(run)
+                    result.findings.extend(finds)
+
+            # ---- Credentials brute force (hydra primary, medusa fallback) ----
+            # Hydra fires REAL login payloads. We only run it against
+            # explicitly-configured login endpoints passed via env vars —
+            # refuse to fire blind. Set STBOX_HYDRA_FORM_* when you have
+            # a known login form you're authorised to test.
+            hydra_path = os.environ.get("STBOX_HYDRA_FORM_PATH")
+            hydra_body = os.environ.get("STBOX_HYDRA_FORM_BODY")
+            hydra_fail = os.environ.get("STBOX_HYDRA_FORM_FAIL")
+            if hydra_path and hydra_body and hydra_fail:
+                hydra = HydraRunner(cfg)
+                if hydra.available():
+                    progress.add_task(
+                        f"hydra (brute force {hydra_path})", total=None,
+                    )
+                    run, finds = await hydra.run(
+                        normalized,
+                        form_path=hydra_path,
+                        form_body=hydra_body,
+                        failure_text=hydra_fail,
+                    )
+                    result.tool_runs.append(run)
+                    result.findings.extend(finds)
+                else:
+                    medusa = MedusaRunner(cfg)
+                    if medusa.available():
+                        progress.add_task("medusa (hydra unavailable)", total=None)
+                        run, finds = await medusa.run(
+                            normalized,
+                            form_path=hydra_path,
+                            form_body=hydra_body,
+                            failure_text=hydra_fail,
+                        )
+                        result.tool_runs.append(run)
+                        result.findings.extend(finds)
+
+            # ---- Nuclei workflows: chained exploitation YAMLs (SSRF →
+            # cloud metadata, LFI → sensitive files, exposed dashboards →
+            # default creds / RCE, WordPress deep).
+            nuclei_wf = NucleiWorkflowsRunner(cfg)
+            if nuclei_wf.available() and cfg.nuclei_workflows_dir.exists():
+                progress.add_task("nuclei workflows (exploit chains)", total=None)
+                for lh in result.live_hosts[:5]:
+                    run, finds = await nuclei_wf.run(lh)
                     result.tool_runs.append(run)
                     result.findings.extend(finds)
 

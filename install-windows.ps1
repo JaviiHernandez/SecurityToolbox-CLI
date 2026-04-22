@@ -53,13 +53,15 @@ $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' +
 
 # ---- Go-based ProjectDiscovery tools -------------------------------------
 
-Info "Installing nuclei / katana / httpx / subfinder / dalfox via `go install`"
+Info "Installing Go tools (nuclei, katana, httpx, subfinder, dalfox, ffuf, kiterunner)"
 $goTools = @(
     'github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest',
     'github.com/projectdiscovery/katana/cmd/katana@latest',
     'github.com/projectdiscovery/httpx/cmd/httpx@latest',
     'github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest',
-    'github.com/hahwul/dalfox/v2@latest'
+    'github.com/hahwul/dalfox/v2@latest',
+    'github.com/ffuf/ffuf/v2@latest',
+    'github.com/assetnote/kiterunner/cmd/kr@latest'
 )
 foreach ($tool in $goTools) {
     Info "  $tool"
@@ -94,11 +96,37 @@ gem install --no-document wpscan
 
 # ---- Python tools: arjun + sqlmap via pipx -------------------------------
 
-Info "Installing pipx + arjun + sqlmap"
+Info "Installing pipx + arjun + sqlmap + wfuzz"
 python -m pip install --user --upgrade pipx
 python -m pipx ensurepath
 python -m pipx install arjun
 python -m pipx install sqlmap
+python -m pipx install wfuzz 2>$null
+
+# ---- Hydra / Medusa — no native Windows build; use WSL if available -----
+if (-not $SkipWsl -and (Get-Command wsl -ErrorAction SilentlyContinue)) {
+    Info "Installing hydra + medusa inside WSL"
+    wsl -d Debian -- bash -c "sudo apt-get update && sudo apt-get install -y hydra medusa"
+} else {
+    Warn "hydra/medusa require WSL on Windows — credential brute force will be disabled"
+}
+
+# ---- Kiterunner routes (~40k API routes) --------------------------------
+$krPath = 'C:\kiterunner'
+if (-not (Test-Path $krPath)) {
+    New-Item -ItemType Directory -Path $krPath | Out-Null
+}
+$routesFile = Join-Path $krPath 'routes-large.kite'
+if (-not (Test-Path $routesFile)) {
+    Info "Fetching kiterunner routes-large.kite (~40k API routes)"
+    try {
+        Invoke-WebRequest -Uri 'https://wordlists-cdn.assetnote.io/data/kiterunner/routes-large.kite' `
+                          -OutFile $routesFile
+    } catch {
+        Warn "kiterunner routes download failed — kiterunner runner will skip"
+    }
+}
+[Environment]::SetEnvironmentVariable('STBOX_WL_KITE', $routesFile, 'User')
 
 # ---- Node / retire.js ----------------------------------------------------
 
@@ -128,6 +156,29 @@ if (-not (Test-Path $seclistsPath)) {
     [Environment]::SetEnvironmentVariable('SECLISTS_PATH', $seclistsPath, 'User')
 } else {
     Ok "SecLists already present at $seclistsPath"
+}
+
+# Stbox config env vars so the runners find the wordlists on Windows paths.
+[Environment]::SetEnvironmentVariable('STBOX_SECLISTS', $seclistsPath, 'User')
+[Environment]::SetEnvironmentVariable('STBOX_WL_CONTENT_SMALL',
+    "$seclistsPath\Discovery\Web-Content\common.txt", 'User')
+[Environment]::SetEnvironmentVariable('STBOX_WL_PARAMS',
+    "$seclistsPath\Discovery\Web-Content\burp-parameter-names.txt", 'User')
+[Environment]::SetEnvironmentVariable('STBOX_WL_USERNAMES',
+    "$seclistsPath\Usernames\top-usernames-shortlist.txt", 'User')
+[Environment]::SetEnvironmentVariable('STBOX_WL_PASSWORDS',
+    "$seclistsPath\Passwords\Common-Credentials\10k-most-common.txt", 'User')
+
+# ---- Nuclei workflows (curated exploit chains) --------------------------
+$workflowsPath = 'C:\stbox-workflows'
+$here = Split-Path -Parent $MyInvocation.MyCommand.Path
+if (Test-Path (Join-Path $here 'workflows')) {
+    Info "Installing nuclei workflows to $workflowsPath"
+    if (-not (Test-Path $workflowsPath)) {
+        New-Item -ItemType Directory -Path $workflowsPath | Out-Null
+    }
+    Copy-Item -Path (Join-Path $here 'workflows\*.yaml') -Destination $workflowsPath -Force
+    [Environment]::SetEnvironmentVariable('STBOX_NUCLEI_WORKFLOWS', $workflowsPath, 'User')
 }
 
 # ---- stbox itself --------------------------------------------------------

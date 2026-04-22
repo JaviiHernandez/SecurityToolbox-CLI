@@ -1,0 +1,17 @@
+id: wordpress-deep
+
+info:
+  name: WordPress deep workflow — detect then hit every WP-specific template
+  author: stbox
+  severity: medium
+  description: |
+    If the target is WordPress, run every wordpress-specific template
+    nuclei ships with. Avoids the cost of running ~1200 WP templates
+    against every target; only fires when WP is confirmed.
+
+workflows:
+  - template: http/technologies/wordpress-detect.yaml
+    subtemplates:
+      - tags: wordpress
+      - tags: wp-plugin
+      - tags: wp-theme

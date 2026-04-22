@@ -1,0 +1,46 @@
+id: exposed-dashboards
+
+info:
+  name: Exposed dashboards → default creds / RCE chain
+  author: stbox
+  severity: high
+  description: |
+    When a well-known dev dashboard (Grafana / Jenkins / Kibana /
+    Prometheus / Airflow / phpMyAdmin / Tomcat / Kubernetes dashboard)
+    is detected as exposed, automatically try default credentials AND
+    any known CVE templates for that specific dashboard.
+
+    Real-world impact: a Grafana CVE-2021-43798 on an exposed dashboard
+    = LFI = config files = DB creds = full takeover in 4 hops.
+
+workflows:
+  - template: http/technologies/grafana-detect.yaml
+    subtemplates:
+      - template: http/default-logins/grafana/grafana-default-login.yaml
+      - template: http/cves/2021/CVE-2021-43798.yaml
+      - template: http/cves/2024/CVE-2024-9264.yaml
+
+  - template: http/technologies/jenkins-detect.yaml
+    subtemplates:
+      - template: http/default-logins/jenkins/jenkins-default-login.yaml
+      - template: http/vulnerabilities/jenkins/jenkins-script.yaml
+      - template: http/exposures/configs/jenkins-asynch.yaml
+
+  - template: http/technologies/kibana-detect.yaml
+    subtemplates:
+      - template: http/cves/2018/CVE-2018-17246.yaml
+      - template: http/exposures/apis/kibana-status.yaml
+
+  - template: http/technologies/tomcat-detect.yaml
+    subtemplates:
+      - template: http/default-logins/tomcat/tomcat-default-login.yaml
+      - template: http/vulnerabilities/apache/tomcat-rce.yaml
+
+  - template: http/technologies/airflow-detect.yaml
+    subtemplates:
+      - template: http/default-logins/airflow/airflow-default-login.yaml
+      - template: http/exposures/apis/airflow-configuration.yaml
+
+  - template: http/technologies/phpmyadmin-detect.yaml
+    subtemplates:
+      - template: http/default-logins/phpmyadmin/phpmyadmin-default-login.yaml

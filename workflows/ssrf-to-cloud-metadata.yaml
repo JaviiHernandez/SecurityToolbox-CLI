@@ -1,0 +1,31 @@
+id: ssrf-to-cloud-metadata
+
+info:
+  name: SSRF → Cloud metadata → Credentials chain
+  author: stbox
+  severity: critical
+  description: |
+    If the target is vulnerable to SSRF, pivot to querying the well-known
+    cloud provider metadata endpoints (AWS 169.254.169.254, GCP, Azure)
+    to extract temporary IAM credentials. One of the most impactful
+    real-world exploit chains of the last 5 years (Capital One, SSRF-to-
+    IAM-takeover is the textbook example).
+
+# Nuclei runs every subtemplate only if the first "template" matches.
+# The ssrf- templates try blind SSRF via Host / X-Forwarded-For /
+# url= parameter probes; if any triggers, the cloud-metadata templates
+# below are fired to confirm post-exploitation access.
+workflows:
+  - template: http/vulnerabilities/generic/basic-ssrf.yaml
+    subtemplates:
+      - template: http/exposures/tokens/cloud/aws-access-key.yaml
+      - template: http/exposures/tokens/cloud/aws-secret-key.yaml
+      - template: http/exposures/tokens/cloud/gcp-api-key.yaml
+      - template: http/exposures/tokens/cloud/gcp-service-account.yaml
+      - template: http/exposures/tokens/cloud/azure-storage-key.yaml
+      - template: http/exposures/tokens/cloud/digitalocean-token.yaml
+
+  - template: http/vulnerabilities/generic/oob-ssrf.yaml
+    subtemplates:
+      - template: http/exposures/tokens/cloud/aws-access-key.yaml
+      - template: http/exposures/tokens/cloud/gcp-service-account.yaml
