@@ -1,0 +1,26 @@
+# Docker Compose for local development / ad-hoc scans.
+#
+# Usage:
+#   docker compose build
+#   docker compose run --rm stbox scan https://example.com --out /reports/report.html
+#   docker compose run --rm stbox doctor
+
+services:
+  stbox:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: stbox:latest
+    container_name: stbox
+    # Reports land in ./reports on the host.
+    volumes:
+      - ./reports:/reports
+    # Uncomment to pass API tokens (wpscan only, for now).
+    environment:
+      - WPSCAN_API_TOKEN=${WPSCAN_API_TOKEN:-}
+      - STBOX_RATE_LIMIT_RPS=${STBOX_RATE_LIMIT_RPS:-10}
+      - STBOX_TOOL_TIMEOUT=${STBOX_TOOL_TIMEOUT:-300}
+    # Default CMD is the help text — override at run-time:
+    #   docker compose run --rm stbox scan https://example.com
+    stdin_open: true
+    tty: true
