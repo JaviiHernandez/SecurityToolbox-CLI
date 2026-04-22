@@ -1,8 +1,12 @@
-"""Certificate Transparency lookup via crt.sh. Pure passive subdomain recon."""
+"""Certificate Transparency lookup via crt.sh. Pure passive subdomain recon.
+
+Returns ONE summary finding with the full deduplicated subdomain list in
+evidence. A single INFO per unique hostname (the old behaviour) made a
+big org like webpagetest.org produce 500+ findings of no individual
+importance — the value of CT enumeration is the list, not each entry.
+"""
 
 from __future__ import annotations
-
-import asyncio
 
 import httpx
 
@@ -11,9 +15,6 @@ from stbox.models import Finding, Severity
 
 
 async def query_crtsh(domain: str, cfg: Config) -> list[Finding]:
-    """Query crt.sh for certificates mentioning `domain` and extract unique
-    subdomains. Returns a list of INFO findings, one per unique hostname.
-    """
     url = f"https://crt.sh/?q=%25.{domain}&output=json"
     async with httpx.AsyncClient(
         timeout=30, headers={"User-Agent": cfg.user_agent}
@@ -48,14 +49,27 @@ async def query_crtsh(domain: str, cfg: Config) -> list[Finding]:
             if h.endswith(f".{domain}") or h == domain:
                 hosts.add(h)
 
+    sorted_hosts = sorted(hosts)
+    if not sorted_hosts:
+        return []
+
     return [
         Finding(
             tool="crtsh",
             severity=Severity.INFO,
-            title=f"Subdomain (CT log): {h}",
-            target=h,
-            tags=["recon", "passive", "ct-log"],
-            evidence={"source": "crt.sh"},
+            title=f"Certificate Transparency: {len(sorted_hosts)} subdomains discovered",
+            description=(
+                "Subdomain enumeration via crt.sh's Certificate Transparency "
+                "log search. Every name returned was at some point certified "
+                "by a public CA and is permanently discoverable. The target "
+                "domain saw zero traffic — purely passive reconnaissance."
+            ),
+            target=domain,
+            tags=["recon", "passive", "ct-log", "summary"],
+            evidence={
+                "source": "crt.sh",
+                "count": len(sorted_hosts),
+                "subdomains": sorted_hosts,
+            },
         )
-        for h in sorted(hosts)
     ]

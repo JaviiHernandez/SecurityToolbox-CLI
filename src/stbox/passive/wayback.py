@@ -1,8 +1,14 @@
-"""Wayback Machine CDX lookup — historical URLs for a domain.
+"""Wayback Machine CDX lookup — historical URLs + parameter mining.
 
 Useful to find old endpoints / parameters that may still be live or
 reveal technology that was once deployed. 100% passive: only reads from
 web.archive.org.
+
+Output philosophy: ONE summary finding with counts + a ranked parameter
+list, NOT one finding per URL. A big domain can have 100 000+ archived
+URLs — listing every single one drowns the real findings in noise.
+The raw URL list is attached as evidence so the HTML/JSON report can
+expose it on demand.
 """
 
 from __future__ import annotations
@@ -15,7 +21,12 @@ from stbox.config import Config
 from stbox.models import Finding, Severity
 
 
-async def query_wayback(domain: str, cfg: Config, limit: int = 500) -> list[Finding]:
+# Hard caps to keep memory sane on very old / noisy domains.
+_MAX_URLS_COLLECTED = 2000
+_MAX_URLS_IN_EVIDENCE = 200  # only the first N URLs are kept for the report
+
+
+async def query_wayback(domain: str, cfg: Config, limit: int = 1000) -> list[Finding]:
     url = (
         f"https://web.archive.org/cdx/search/cdx?"
         f"url={domain}/*&output=json&fl=original&collapse=urlkey&limit={limit}"
@@ -43,36 +54,53 @@ async def query_wayback(domain: str, cfg: Config, limit: int = 500) -> list[Find
     except Exception:  # noqa: BLE001
         return []
 
-    out: list[Finding] = []
-    params_seen: set[str] = set()
-    for row in data[1:] if len(data) > 1 else []:  # first row is header
+    rows = data[1:] if len(data) > 1 else []  # first row is header
+    urls: list[str] = []
+    param_freq: dict[str, int] = {}
+
+    for row in rows:
         orig = row[0] if isinstance(row, list) and row else ""
         if not orig:
             continue
-        parsed = urlparse(orig)
-        # One finding per unique URL
-        out.append(
-            Finding(
-                tool="wayback",
-                severity=Severity.INFO,
-                title=f"Historical URL: {orig}",
-                target=orig,
-                tags=["recon", "passive", "wayback"],
-                evidence={"path": parsed.path, "query": parsed.query},
-            )
+        if len(urls) < _MAX_URLS_COLLECTED:
+            urls.append(orig)
+        # Param frequency across ALL captured URLs — this is the interesting
+        # signal (names that keep reappearing are likely still handled by
+        # the backend and worth fuzzing with arjun/ffuf later).
+        try:
+            parsed = urlparse(orig)
+            for k in parse_qs(parsed.query).keys():
+                param_freq[k] = param_freq.get(k, 0) + 1
+        except Exception:  # noqa: BLE001
+            continue
+
+    if not urls:
+        return []
+
+    # Rank parameters by frequency, truncate the long tail.
+    ranked_params = sorted(param_freq.items(), key=lambda kv: kv[1], reverse=True)[:50]
+
+    # Build a single summary finding.
+    return [
+        Finding(
+            tool="wayback",
+            severity=Severity.INFO,
+            title=(
+                f"Wayback Machine: {len(urls)} historical URLs, "
+                f"{len(param_freq)} unique parameters"
+            ),
+            description=(
+                "Historical URL enumeration from web.archive.org's CDX API. "
+                "Useful for discovering legacy endpoints that may still be "
+                "live, and parameter names to feed into active fuzzing tools."
+            ),
+            target=domain,
+            tags=["recon", "passive", "wayback", "summary"],
+            evidence={
+                "url_count": len(urls),
+                "param_count": len(param_freq),
+                "top_params": ranked_params[:20],  # [(name, count), ...]
+                "sample_urls": urls[:_MAX_URLS_IN_EVIDENCE],
+            },
         )
-        # Extract parameter names for param-mining
-        for k in parse_qs(parsed.query).keys():
-            if k not in params_seen:
-                params_seen.add(k)
-                out.append(
-                    Finding(
-                        tool="wayback",
-                        severity=Severity.INFO,
-                        title=f"Historical parameter: {k}",
-                        target=f"{parsed.scheme}://{parsed.netloc}{parsed.path}",
-                        tags=["recon", "passive", "param"],
-                        evidence={"parameter": k},
-                    )
-                )
-    return out
+    ]

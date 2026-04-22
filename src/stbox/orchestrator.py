@@ -32,8 +32,13 @@ from rich.progress import (
 
 from stbox.config import Config
 from stbox.models import Finding, Mode, ScanResult, ToolRun
+from stbox.passive.cms_detect import detect_cms
 from stbox.passive.crtsh import query_crtsh
 from stbox.passive.dns_lookup import dns_recon
+from stbox.passive.exposures import scan_exposures
+from stbox.passive.headers_check import analyze_headers_and_cookies
+from stbox.passive.js_libs import scan_js_libs
+from stbox.passive.tls_check import analyze_tls
 from stbox.passive.wayback import query_wayback
 from stbox.runners.arjun import ArjunRunner
 from stbox.runners.dalfox import DalfoxRunner
@@ -52,8 +57,13 @@ from stbox.scope import check_target, extract_host
 logger = logging.getLogger("stbox.orchestrator")
 
 
-def detect_wordpress(tech_stack: dict[str, list[str]], evidence_blobs: list[dict]) -> bool:
-    """Very simple WP detection: look at httpx tech tags + any known WP path."""
+def detect_wordpress(
+    tech_stack: dict[str, list[str]],
+    evidence_blobs: list[dict],
+    cms_findings: list[Finding] | None = None,
+) -> bool:
+    """WP detection: httpx tech tags, httpx evidence, OR the native
+    CMS-detect passive module's findings."""
     for tags in tech_stack.values():
         for t in tags or []:
             if "wordpress" in str(t).lower():
@@ -61,6 +71,9 @@ def detect_wordpress(tech_stack: dict[str, list[str]], evidence_blobs: list[dict
     for blob in evidence_blobs:
         tech = blob.get("tech") or []
         if isinstance(tech, list) and any("wordpress" in str(x).lower() for x in tech):
+            return True
+    for f in cms_findings or []:
+        if f.tool == "cms" and "wordpress" in (f.evidence.get("cms") or "").lower():
             return True
     return False
 
@@ -93,10 +106,18 @@ async def run_scan(
             "Active mode requires --i-have-permission. Aborting."
         )
 
+    # All passive phases — run in every mode. Pure Python, no binaries
+    # required. Each produces findings that actually explain the target,
+    # not just list every DNS record / archived URL.
     phases: list[tuple[str, callable]] = [
-        ("passive: crt.sh", lambda: query_crtsh(host, cfg)),
-        ("passive: wayback", lambda: query_wayback(host, cfg)),
-        ("passive: DNS", lambda: dns_recon(host, cfg)),
+        ("passive: crt.sh",   lambda: query_crtsh(host, cfg)),
+        ("passive: wayback",  lambda: query_wayback(host, cfg)),
+        ("passive: DNS",      lambda: dns_recon(host, cfg)),
+        ("passive: TLS",      lambda: analyze_tls(normalized, cfg)),
+        ("passive: headers",  lambda: analyze_headers_and_cookies(normalized, cfg)),
+        ("passive: CMS",      lambda: detect_cms(normalized, cfg)),
+        ("passive: JS libs",  lambda: scan_js_libs(normalized, cfg)),
+        ("passive: exposures",lambda: scan_exposures(normalized, cfg)),
     ]
 
     with Progress(
@@ -108,8 +129,11 @@ async def run_scan(
         transient=False,
     ) as progress:
 
-        # ---- Phase 1: pure-python passive recon ----
-        task = progress.add_task("Passive recon (crt.sh, wayback, DNS)", total=len(phases))
+        # ---- Phase 1: pure-python passive recon (8 modules, no binaries) ----
+        task = progress.add_task(
+            "Passive recon (crt.sh, wayback, DNS, TLS, headers, CMS, JS libs, exposures)",
+            total=len(phases),
+        )
         passive_results = await asyncio.gather(
             *(coro() for _, coro in phases), return_exceptions=True
         )
@@ -203,7 +227,8 @@ async def run_scan(
 
         # ---- Phase 8: wpscan (if WP detected) ----
         evidence_blobs = [f.evidence for f in result.findings if f.tool == "httpx"]
-        if detect_wordpress(result.tech_stack, evidence_blobs):
+        cms_findings = [f for f in result.findings if f.tool == "cms"]
+        if detect_wordpress(result.tech_stack, evidence_blobs, cms_findings):
             wp = WpscanRunner(cfg, active=(mode == Mode.ACTIVE))
             if wp.available():
                 progress.add_task("wpscan (WordPress detected)", total=None)
