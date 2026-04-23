@@ -48,10 +48,10 @@ RUN go install -ldflags="-s -w" github.com/projectdiscovery/nuclei/v3/cmd/nuclei
        /usr/local/bin/ && \
     rm -rf /root/go/pkg
 
-# kiterunner — go install is broken on v1.0.2 (cmd/kr package path missing); build from source instead
+# kiterunner — go install is broken (binary entry is cmd/kiterunner, not cmd/kr); build from source
 RUN git clone --depth 1 https://github.com/assetnote/kiterunner /tmp/kiterunner && \
     cd /tmp/kiterunner && \
-    go build -ldflags="-s -w" -o /usr/local/bin/kr ./cmd/kr && \
+    go build -ldflags="-s -w" -o /usr/local/bin/kr ./cmd/kiterunner && \
     rm -rf /tmp/kiterunner /root/go/pkg
 
 # Kiterunner routes bundle — ~40k API routes harvested from public OpenAPI
