@@ -56,9 +56,10 @@ RUN git clone --depth 1 https://github.com/assetnote/kiterunner /tmp/kiterunner 
 
 # Kiterunner routes bundle — ~40k API routes harvested from public OpenAPI
 # specs. Without this file kiterunner skips the task silently.
+# Assetnote CDN serves this gzipped (.tar.gz), not as the raw .kite file.
 RUN mkdir -p /opt/kiterunner && \
-    curl -fsSL -o /opt/kiterunner/routes-large.kite \
-      https://wordlists-cdn.assetnote.io/data/kiterunner/routes-large.kite
+    curl -fsSL https://wordlists-cdn.assetnote.io/data/kiterunner/routes-large.kite.tar.gz \
+      | tar -xz -C /opt/kiterunner
 
 # Pre-download nuclei templates so first run is offline-ready.
 RUN nuclei -update-templates -silent || true
