@@ -43,11 +43,16 @@ RUN go install -ldflags="-s -w" github.com/projectdiscovery/nuclei/v3/cmd/nuclei
     go install -ldflags="-s -w" github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest && \
     go install -ldflags="-s -w" github.com/hahwul/dalfox/v2@latest && \
     go install -ldflags="-s -w" github.com/ffuf/ffuf/v2@latest && \
-    go install -ldflags="-s -w" github.com/assetnote/kiterunner/cmd/kr@latest && \
     mv /root/go/bin/nuclei /root/go/bin/katana /root/go/bin/httpx \
        /root/go/bin/subfinder /root/go/bin/dalfox /root/go/bin/ffuf \
-       /root/go/bin/kr /usr/local/bin/ && \
+       /usr/local/bin/ && \
     rm -rf /root/go/pkg
+
+# kiterunner — go install is broken on v1.0.2 (cmd/kr package path missing); build from source instead
+RUN git clone --depth 1 https://github.com/assetnote/kiterunner /tmp/kiterunner && \
+    cd /tmp/kiterunner && \
+    go build -ldflags="-s -w" -o /usr/local/bin/kr ./cmd/kr && \
+    rm -rf /tmp/kiterunner /root/go/pkg
 
 # Kiterunner routes bundle — ~40k API routes harvested from public OpenAPI
 # specs. Without this file kiterunner skips the task silently.
